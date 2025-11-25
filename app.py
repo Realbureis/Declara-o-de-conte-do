@@ -1,15 +1,16 @@
 import streamlit as st
 import re
+import base64
 from utils import extrair_dados_pedido, gerar_declaracao_pdf
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
+# --- CONFIGURAÇÃO DA PÁGINA (Mantida a sua) ---
 st.set_page_config(
     page_title="Jumbo CDP - Declaração Automática",
     page_icon="📦",
     layout="centered"
 )
 
-# --- ESTILO CSS (Para deixar o botão gigante e centralizado) ---
+# --- ESTILO CSS (Mantido o seu) ---
 st.markdown("""
     <style>
     div.stButton > button {
@@ -21,6 +22,10 @@ st.markdown("""
     .block-container {
         padding-top: 2rem;
         padding-bottom: 2rem;
+    }
+    iframe {
+        border: 1px solid #ccc;
+        border-radius: 5px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -35,7 +40,7 @@ TEMPLATE_FILENAME = "Formulario Declaracao de Conteudo - A4.pdf"
 
 if uploaded_file:
     try:
-        # --- PROCESSAMENTO AUTOMÁTICO (ZERO CLIQUES) ---
+        # --- PROCESSAMENTO AUTOMÁTICO ---
         with st.spinner("⚙️ Processando dados e gerando documento..."):
 
             # 1. Extração
@@ -44,7 +49,7 @@ if uploaded_file:
             # 2. Geração do PDF
             pdf_final = gerar_declaracao_pdf(dados, TEMPLATE_FILENAME)
 
-            # 3. Definição do Nome do Arquivo (Baseado no upload)
+            # 3. Definição do Nome do Arquivo
             nome_original = uploaded_file.name
             match_numero = re.search(r"(\d+)", nome_original)
 
@@ -53,24 +58,20 @@ if uploaded_file:
             else:
                 num_pedido = dados.get('numero_pedido', 'S_NUMERO')
 
-            nome_download = f"Pedido_{num_pedido}.pdf"
-
-        # --- ÁREA DE DOWNLOAD (EM DESTAQUE) ---
+        # --- ÁREA DE VISUALIZAÇÃO (SUBSTITUI O BOTÃO DE DOWNLOAD) ---
         if pdf_final:
-            st.success("✅ Documento pronto!")
+            st.success("✅ Documento pronto! Use a barra superior do PDF para Imprimir.")
 
-            # Botão Principal - Ocupa largura total
-            st.download_button(
-                label=f"⬇️ BAIXAR DECLARAÇÃO ({num_pedido})",
-                data=pdf_final,
-                file_name=nome_download,
-                mime="application/pdf",
-                type="primary"
-            )
+            # Converte PDF para Base64 para exibir na tela
+            base64_pdf = base64.b64encode(pdf_final.getvalue()).decode('utf-8')
+
+            # Exibe o PDF com altura ajustada
+            pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800px" type="application/pdf"></iframe>'
+            st.markdown(pdf_display, unsafe_allow_html=True)
 
             st.markdown("---")
 
-            # --- RESUMO VISUAL (Para conferência rápida) ---
+            # --- RESUMO VISUAL (Seu layout original) ---
             st.subheader("📋 Resumo do Processamento")
 
             col1, col2 = st.columns(2)
@@ -89,7 +90,7 @@ if uploaded_file:
                 st.write(f"**Local:** {dados.get('destinatario_cidade')} - {dados.get('destinatario_uf')}")
                 st.write(f"**CEP:** {dados.get('destinatario_cep')}")
 
-            # Dados Extras (Discretos)
+            # Dados Extras
             with st.expander(f"Ver {len(dados['itens'])} Itens e Detalhes"):
                 c_a, c_b = st.columns(2)
                 c_a.write(f"**Peso Total:** {dados.get('peso_pedido')}")
