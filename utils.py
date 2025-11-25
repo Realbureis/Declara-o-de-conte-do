@@ -1,12 +1,12 @@
 import io
 import re
 import pdfplumber
-from datetime import datetime
+from datetime import datetime, timedelta  # <--- Adicionado timedelta
 from PyPDF2 import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 
-# Lista de UFs
+# Lista de UFs do Brasil
 LISTA_UFS = [
     "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
     "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
@@ -28,12 +28,12 @@ def limpar_lixo(texto):
         "Somente Cx Correio", "Somente Cx", "Somente", "Correio",
         "620 Dia para Sedex", "Dia para Sedex", "Dia para", "620 Dia",
         "Peso Máximo", "Peso do pedido", "Caixa Máxima", "Cx=5",
-        "Obs.", "Não", "620", "Visitante"  # <--- ADICIONADO VISITANTE AQUI
+        "Obs.", "Não", "620", "Visitante"
     ]
     for item in lixo:
         texto = re.sub(re.escape(item), '', texto, flags=re.IGNORECASE)
 
-    # Remove pontuação solta (incluindo os dois pontos :)
+    # Remove pontuação solta
     texto = texto.replace(":", "")
     texto = texto.strip(" :-,.")
 
@@ -44,20 +44,16 @@ def extrair_valor_sequencial(texto_completo, chave, indice_desejado, paradas):
     """
     Procura a N-ésima ocorrência de uma chave e pega o texto até a próxima parada.
     """
-    # Normaliza o texto
     txt = texto_completo.replace('\n', ' ')
 
-    # Encontra todas as ocorrências da chave
     ocorrencias = [m.end() for m in re.finditer(re.escape(chave), txt, re.IGNORECASE)]
 
     if len(ocorrencias) <= indice_desejado:
         return ""
 
-    # Pega o texto começando logo após a chave
     inicio = ocorrencias[indice_desejado]
     texto_corte = txt[inicio:]
 
-    # Encontra o "Stop Word" mais próximo
     menor_indice = len(texto_corte)
 
     for parada in paradas:
@@ -90,12 +86,18 @@ def extrair_dados_pedido(pdf_file):
         "itens": [], "peso_pedido": "", "numero_pedido": "", "data_dia": "", "data_mes": "", "data_ano": ""
     }
 
+    # --- DATA AUTOMÁTICA (AGORA - 3h) ---
+    agora = datetime.now() - timedelta(hours=3)
+    dados["data_dia"] = str(agora.day)
+    dados["data_mes"] = MESES[agora.month]
+    dados["data_ano"] = str(agora.year)
+
     with pdfplumber.open(pdf_file) as pdf:
         page = pdf.pages[0]
         text = page.extract_text() or ""
         text_flat = text.replace('\n', '  ')
 
-        # === LISTA DE PARADAS (Adicionei VISITANTE aqui também) ===
+        # === LISTA DE PARADAS ===
         paradas_gerais = [
             "Endereço:", "Bairro:", "Cidade-UF:", "CEP:", "Fone:",
             "E-mail:", "Peso", "Caixa", "Dia para", "Visitante", "Preso"
@@ -106,9 +108,7 @@ def extrair_dados_pedido(pdf_file):
         dados["destinatario_nome"] = extrair_valor_sequencial(text, "Nome:", 1, paradas_gerais)
 
         # 2. ENDEREÇOS
-        # 1º Endereço -> Destinatário (Padrão do seu PDF: End. Entrega vem antes de Visitante)
         dados["destinatario_end"] = extrair_valor_sequencial(text, "Endereço:", 0, paradas_gerais)
-        # 2º Endereço -> Remetente (Visitante)
         dados["remetente_end"] = extrair_valor_sequencial(text, "Endereço:", 1, paradas_gerais)
 
         # 3. CIDADE-UF
@@ -128,15 +128,8 @@ def extrair_dados_pedido(pdf_file):
         if m_num: dados["numero_pedido"] = m_num.group(1)
         m_peso = re.search(r"Peso do pedido:\s*(.*?)\n", text)
         if m_peso: dados["peso_pedido"] = m_peso.group(1).strip()
-        m_data = re.search(r"Data:\s*(\d{2}/\d{2}/\d{4})", text)
-        if m_data:
-            try:
-                dt = datetime.strptime(m_data.group(1), "%d/%m/%Y")
-                dados["data_dia"] = str(dt.day);
-                dados["data_mes"] = MESES[dt.month];
-                dados["data_ano"] = str(dt.year)
-            except:
-                pass
+
+        # A data extraída do PDF foi removida daqui, usamos a data automática acima.
 
         # === ITENS ===
         for table in page.extract_tables():
@@ -166,7 +159,7 @@ def gerar_declaracao_pdf(dados, template_path, ajustes=None):
     can = canvas.Canvas(packet, pagesize=A4)
     can.setFont("Helvetica", 10)
 
-    # COORDENADAS FIXAS
+    # === COORDENADAS ===
     coord = {
         "rem_nome_x": 45, "rem_nome_y": 726, "rem_end_x": 63, "rem_end_y": 709,
         "rem_cid_x": 50, "rem_cid_y": 673, "rem_uf_x": 245, "rem_uf_y": 673, "rem_cep_x": 35, "rem_cep_y": 655,
@@ -174,8 +167,11 @@ def gerar_declaracao_pdf(dados, template_path, ajustes=None):
         "dest_cid_x": 330, "dest_cid_y": 673, "dest_uf_x": 540, "dest_uf_y": 673, "dest_cep_x": 325, "dest_cep_y": 655,
         "itens_y_inicio": 600, "itens_espacamento": 17, "item_desc_x": 65, "item_qtd_x": 405,
         "item_desc_x_2": 230, "item_qtd_x_2": 450, "sep_desc_x": 220, "sep_qtd_x": 430,
-        "peso_x": 395, "peso_y": 327, "data_y": 190, "data_cidade_x": 80, "data_dia_x": 145, "data_mes_x": 215,
-        "data_ano_x": 325
+
+        "peso_x": 395, "peso_y": 327,
+        "data_y": 190,
+        "data_cidade_x": 50,  # <--- AJUSTADO PARA 50
+        "data_dia_x": 145, "data_mes_x": 215, "data_ano_x": 325
     }
 
     if ajustes: coord.update(ajustes)
